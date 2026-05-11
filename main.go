@@ -84,19 +84,20 @@ var handlers = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 
 
 func handleAdd(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	nombre := i.ApplicationCommandData().Options[0].StringValue()
+	name := i.ApplicationCommandData().Options[0].StringValue()
 	userID := i.Member.User.ID
 
 	res, err := db.Exec(
 		`INSERT INTO peliculas (nombre, agregada_por) VALUES (?, ?)`,
-		nombre, userID,
+		name,
+		userID,
 	)
 	if err != nil {
 		respond(s, i, "Error al agregar la película: "+err.Error())
 		return
 	}
 	id, _ := res.LastInsertId()
-	respond(s, i, fmt.Sprintf("✅ Agregada: **%s** (id %d)", nombre, id))
+	respond(s, i, fmt.Sprintf("✅ Agregada: **%s** (id %d)", name, id))
 }
 
 func handleSuggest(s *discordgo.Session, i *discordgo.InteractionCreate) {
