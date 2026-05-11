@@ -73,6 +73,26 @@ var commands = []*discordgo.ApplicationCommand{
 		Name:        "lista",
 		Description: "Muestra el catálogo de películas",
 	},
+	{
+		Name:		  "quitar",
+		Description:  "Elimina una pelicula de la lista de pendientes",
+		Options: []*discordgo.ApplicationCommandOption{
+			{
+				Type:         discordgo.ApplicationCommandOptionString,
+				Name:         "nombre",
+				Description:  "Nombre de la película a eliminar",
+				Required:     false,
+				Autocomplete: true,
+			},
+			{
+				Type:          discordgo.ApplicationCommandOptionInteger,
+				Name:          "id",
+				Description:   "ID de la película a eliminar",
+				Required:      false,
+				Autocomplete:  false,
+			},
+		},
+	},
 }
 
 var handlers = map[string]func(s *discordgo.Session, i *discordgo.InteractionCreate){
@@ -80,6 +100,7 @@ var handlers = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 	"sugerir": handleSuggest,
 	"vista":   handleMarkMovieAsSeen,
 	"lista":   handleGetMovieList,
+	"quitar":  handleRemove,
 }
 
 
@@ -98,6 +119,61 @@ func handleAdd(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	}
 	id, _ := res.LastInsertId()
 	respond(s, i, fmt.Sprintf("✅ Agregada: **%s** (id %d)", name, id))
+}
+
+func handleRemove(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	data := i.ApplicationCommandData()
+
+	// Autocomplete
+	if i.Type == discordgo.InteractionApplicationCommandAutocomplete {
+		var query string
+		for _, opt := range data.Options {
+			if opt.Focused && opt.Name == "nombre" {
+				query = opt.StringValue()
+			}
+		}
+		respondAutocomplete(s, i, i.Member.User.ID, query)
+		return
+	}
+	var (
+		name string
+		id   int64
+	)
+
+	for _, opt := range data.Options {
+		switch opt.Name {
+		case "nombre":
+			name = opt.StringValue()
+		case "id":
+			id   = opt.IntValue()
+		}
+	}
+
+	if name == "" && id == 0 {
+		respond(s, i, "Debes proporcionar `nombre` o `id`.")
+		return
+	}
+	res, err := db.Exec(
+		`DELETE FROM peliculas WHERE (? <> '' AND nombre = ? COLLATE NOCASE) OR (? <> 0 AND id = ?)`,
+		name,
+		name,
+		id,
+		id,
+	)
+
+	if err != nil {
+		respond(s, i, "Error al eliminar pelicula: "+err.Error())
+		return
+	}
+
+	n, _ := res.RowsAffected()
+
+	if n == 0 {
+		respond(s, i, "No encontre ninguna pelicula con esos datos")
+		return
+	}
+
+	respond(s, i, fmt.Sprintf("📤 Eliminada(s) %d película(s).", n))
 }
 
 func handleSuggest(s *discordgo.Session, i *discordgo.InteractionCreate) {
