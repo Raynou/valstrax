@@ -74,8 +74,8 @@ var commands = []*discordgo.ApplicationCommand{
 		Description: "Muestra el catálogo de películas",
 	},
 	{
-		Name:		  "quitar",
-		Description:  "Elimina una pelicula de la lista de pendientes",
+		Name:        "quitar",
+		Description: "Elimina una pelicula de la lista de pendientes",
 		Options: []*discordgo.ApplicationCommandOption{
 			{
 				Type:         discordgo.ApplicationCommandOptionString,
@@ -85,18 +85,18 @@ var commands = []*discordgo.ApplicationCommand{
 				Autocomplete: true,
 			},
 			{
-				Type:          discordgo.ApplicationCommandOptionInteger,
-				Name:          "id",
-				Description:   "ID de la película a eliminar",
-				Required:      false,
-				Autocomplete:  false,
+				Type:         discordgo.ApplicationCommandOptionInteger,
+				Name:         "id",
+				Description:  "ID de la película a eliminar",
+				Required:     false,
+				Autocomplete: false,
 			},
 		},
 	},
 	{
-		Name:            "desmarcar",
-		Description:     "Marca una pelicula como no vista",
-		Options:         []*discordgo.ApplicationCommandOption{
+		Name:        "desmarcar",
+		Description: "Marca una pelicula como no vista",
+		Options: []*discordgo.ApplicationCommandOption{
 			{
 				Type:         discordgo.ApplicationCommandOptionString,
 				Name:         "nombre",
@@ -105,7 +105,7 @@ var commands = []*discordgo.ApplicationCommand{
 				Autocomplete: true,
 			},
 			{
-				Type:         discordgo.ApplicationCommandInteger,
+				Type:         discordgo.ApplicationCommandOptionInteger,
 				Name:         "id",
 				Description:  "Id de la pelicula",
 				Required:     false,
@@ -121,9 +121,8 @@ var handlers = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 	"vista":     handleMarkMovieAsSeen,
 	"lista":     handleGetMovieList,
 	"quitar":    handleRemove,
-	"desmarcar": handleUnmarkMovie
+	"desmarcar": handleUnmarkMovie,
 }
-
 
 func handleAdd(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	name := i.ApplicationCommandData().Options[0].StringValue()
@@ -166,7 +165,7 @@ func handleRemove(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		case "nombre":
 			name = opt.StringValue()
 		case "id":
-			id   = opt.IntValue()
+			id = opt.IntValue()
 		}
 	}
 
@@ -297,22 +296,58 @@ func handleUnmarkMovie(s *discordgo.Session, i *discordgo.InteractionCreate) {
 				query = opt.StringValue()
 			}
 		}
-		respondAutocomplete(s, i, i.Member.User.ID, query)
+		respondAutocompleteSeenMovies(s, i, query)
 		return
 	}
 
 	var (
-		name string,
+		name string
 		id   int64
 	)
 
 	for _, opt := range data.Options {
-		switch opt {
-		case "name":
+		switch opt.Name {
+		case "nombre":
 			name = opt.StringValue()
 		case "id":
-			id   = opt.IntValue()
+			id = opt.IntValue()
 		}
+	}
+	if name != "" {
+		res, err := db.Exec(
+			`UPDATE peliculas SET vista_en = NULL WHERE nombre = ?`,
+			name,
+		)
+
+		if err != nil {
+			respond(s, i, fmt.Sprintf("Error al momento de desmarcar pelicula: %s", name))
+		}
+
+		n, _ := res.RowsAffected()
+
+		if n == 0 {
+			respond(s, i, fmt.Sprintf("No encontre ninguna pelicula con el nombre: %s", name))
+		}
+
+		respond(s, i, fmt.Sprintf("Pelicula %s marcada como no vista", name))
+
+	} else if id != 0 {
+		res, err := db.Exec(
+			`UPDATE peliculas SET vista_en = NULL WHERE id = ?`,
+			id,
+		)
+
+		if err != nil {
+			respond(s, i, fmt.Sprintf("Error al momento de desmarcar pelicula con id: `%d`", id))
+		}
+
+		n, _ := res.RowsAffected()
+
+		if n == 0 {
+			respond(s, i, fmt.Sprintf("No encontré ninguna pelicula con la id: `%d`", id))
+		}
+
+		respond(s, i, fmt.Sprintf("Pelicula con id `%d` marcada como no vista", id))
 	}
 }
 
@@ -332,6 +367,36 @@ func respondAutocomplete(s *discordgo.Session, i *discordgo.InteractionCreate, u
 	if err != nil {
 		return
 	}
+	defer rows.Close()
+
+	var choices []*discordgo.ApplicationCommandOptionChoice
+	for rows.Next() {
+		var n string
+		rows.Scan(&n)
+		choices = append(choices, &discordgo.ApplicationCommandOptionChoice{
+			Name: n, Value: n,
+		})
+	}
+
+	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionApplicationCommandAutocompleteResult,
+		Data: &discordgo.InteractionResponseData{Choices: choices},
+	})
+}
+
+// TODO: I don't like this, figure out how to don't repeat the logic from the above method
+func respondAutocompleteSeenMovies(s *discordgo.Session, i *discordgo.InteractionCreate, query string) {
+	rows, err := db.Query(
+		`SELECT nombre FROM peliculas
+		WHERE nombre LIKE ? COLLATE NOCASE
+			AND vista_en IS NOT NULL
+		`, "%"+query+"%",
+	)
+
+	if err != nil {
+		return
+	}
+
 	defer rows.Close()
 
 	var choices []*discordgo.ApplicationCommandOptionChoice
