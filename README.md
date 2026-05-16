@@ -50,6 +50,6 @@ Setting up the project requires a `DISCORD_TOKEN` and a `GUILD_ID`.
 Run this command for starting the bot:
 
 ```bash
-DISCORD_TOKEN=<your_token> GUILD_ID=<your_guild_id> go main.go
+DISCORD_TOKEN=<your_token> GUILD_ID=<your_guild_id> go run main.go
 ```
 
