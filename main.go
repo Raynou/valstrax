@@ -93,14 +93,35 @@ var commands = []*discordgo.ApplicationCommand{
 			},
 		},
 	},
+	{
+		Name:            "desmarcar",
+		Description:     "Marca una pelicula como no vista",
+		Options:         []*discordgo.ApplicationCommandOption{
+			{
+				Type:         discordgo.ApplicationCommandOptionString,
+				Name:         "nombre",
+				Description:  "Nombre de la pelicula",
+				Required:     false,
+				Autocomplete: true,
+			},
+			{
+				Type:         discordgo.ApplicationCommandInteger,
+				Name:         "id",
+				Description:  "Id de la pelicula",
+				Required:     false,
+				Autocomplete: false,
+			},
+		},
+	},
 }
 
 var handlers = map[string]func(s *discordgo.Session, i *discordgo.InteractionCreate){
-	"agregar": handleAdd,
-	"sugerir": handleSuggest,
-	"vista":   handleMarkMovieAsSeen,
-	"lista":   handleGetMovieList,
-	"quitar":  handleRemove,
+	"agregar":   handleAdd,
+	"sugerir":   handleSuggest,
+	"vista":     handleMarkMovieAsSeen,
+	"lista":     handleGetMovieList,
+	"quitar":    handleRemove,
+	"desmarcar": handleUnmarkMovie
 }
 
 
@@ -263,6 +284,36 @@ func handleGetMovieList(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		msg = "El catálogo está vacío. Agrega algo con `/agregar`."
 	}
 	respond(s, i, msg)
+}
+
+func handleUnmarkMovie(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	data := i.ApplicationCommandData()
+
+	// Autocomplete
+	if i.Type == discordgo.InteractionApplicationCommandAutocomplete {
+		var query string
+		for _, opt := range data.Options {
+			if opt.Focused {
+				query = opt.StringValue()
+			}
+		}
+		respondAutocomplete(s, i, i.Member.User.ID, query)
+		return
+	}
+
+	var (
+		name string,
+		id   int64
+	)
+
+	for _, opt := range data.Options {
+		switch opt {
+		case "name":
+			name = opt.StringValue()
+		case "id":
+			id   = opt.IntValue()
+		}
+	}
 }
 
 func respond(s *discordgo.Session, i *discordgo.InteractionCreate, content string) {
