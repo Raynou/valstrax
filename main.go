@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/bwmarrin/discordgo"
@@ -24,11 +25,13 @@ func initDB() {
 		log.Fatal(err)
 	}
 
+	// Task 1.3: schema con guild_id para bases de datos nuevas
 	schema := `
 	CREATE TABLE IF NOT EXISTS peliculas (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		nombre TEXT NOT NULL,
 		agregada_por TEXT NOT NULL,
+		guild_id TEXT NOT NULL DEFAULT '',
 		creada_en DATETIME DEFAULT CURRENT_TIMESTAMP,
 		vista_en DATETIME
 	);`
@@ -36,6 +39,25 @@ func initDB() {
 	if _, err := db.Exec(schema); err != nil {
 		log.Fatal(err)
 	}
+
+	// Task 1.1: migración idempotente para bases de datos existentes
+	_, err = db.Exec(`ALTER TABLE peliculas ADD COLUMN guild_id TEXT NOT NULL DEFAULT ''`)
+	if err != nil && !strings.Contains(err.Error(), "duplicate column name") && !strings.Contains(err.Error(), "already has column") {
+		log.Fatal(err)
+	}
+
+	// Task 1.2: índice para optimizar filtros por guild
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_peliculas_guild ON peliculas(guild_id)`); err != nil {
+		log.Fatal(err)
+	}
+}
+
+// Task 2.1: helper que extrae el guild_id de una interacción
+func interactionGuildID(i *discordgo.InteractionCreate) (string, bool) {
+	if i.GuildID == "" {
+		return "", false
+	}
+	return i.GuildID, true
 }
 
 // Slash commands
@@ -125,13 +147,22 @@ var handlers = map[string]func(s *discordgo.Session, i *discordgo.InteractionCre
 }
 
 func handleAdd(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	// Task 2.2
+	gID, ok := interactionGuildID(i)
+	if !ok {
+		respond(s, i, "Este comando solo está disponible dentro de un servidor.")
+		return
+	}
+
 	name := i.ApplicationCommandData().Options[0].StringValue()
 	userID := i.Member.User.ID
 
+	// Task 3.1: incluir guild_id en el INSERT
 	res, err := db.Exec(
-		`INSERT INTO peliculas (nombre, agregada_por) VALUES (?, ?)`,
+		`INSERT INTO peliculas (nombre, agregada_por, guild_id) VALUES (?, ?, ?)`,
 		name,
 		userID,
+		gID,
 	)
 	if err != nil {
 		respond(s, i, "Error al agregar la película: "+err.Error())
@@ -142,9 +173,16 @@ func handleAdd(s *discordgo.Session, i *discordgo.InteractionCreate) {
 }
 
 func handleRemove(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	// Task 2.2
+	gID, ok := interactionGuildID(i)
+	if !ok {
+		respond(s, i, "Este comando solo está disponible dentro de un servidor.")
+		return
+	}
+
 	data := i.ApplicationCommandData()
 
-	// Autocomplete
+	// Autocomplete — Task 5.3: pasar i.GuildID
 	if i.Type == discordgo.InteractionApplicationCommandAutocomplete {
 		var query string
 		for _, opt := range data.Options {
@@ -152,7 +190,7 @@ func handleRemove(s *discordgo.Session, i *discordgo.InteractionCreate) {
 				query = opt.StringValue()
 			}
 		}
-		respondAutocomplete(s, i, i.Member.User.ID, query)
+		respondAutocomplete(s, i, gID, query)
 		return
 	}
 	var (
@@ -173,8 +211,11 @@ func handleRemove(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		respond(s, i, "Debes proporcionar `nombre` o `id`.")
 		return
 	}
+
+	// Task 3.2: filtrar DELETE por guild_id
 	res, err := db.Exec(
-		`DELETE FROM peliculas WHERE (? <> '' AND nombre = ? COLLATE NOCASE) OR (? <> 0 AND id = ?)`,
+		`DELETE FROM peliculas WHERE guild_id = ? AND ((? <> '' AND nombre = ? COLLATE NOCASE) OR (? <> 0 AND id = ?))`,
+		gID,
 		name,
 		name,
 		id,
@@ -197,13 +238,22 @@ func handleRemove(s *discordgo.Session, i *discordgo.InteractionCreate) {
 }
 
 func handleSuggest(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	// Task 2.2
+	gID, ok := interactionGuildID(i)
+	if !ok {
+		respond(s, i, "Este comando solo está disponible dentro de un servidor.")
+		return
+	}
+
 	var nombre string
+	// Task 4.1: filtrar por guild_id
 	err := db.QueryRow(`
 		SELECT nombre FROM peliculas
 		WHERE vista_en IS NULL
+			AND guild_id = ?
 		ORDER BY RANDOM()
 		LIMIT 1
-	`).Scan(&nombre)
+	`, gID).Scan(&nombre)
 
 	if err == sql.ErrNoRows {
 		respond(s, i, "🎬 ¡Ya viste todo lo que hay en el catálogo! Agrega más con `/agregar`.")
@@ -218,9 +268,16 @@ func handleSuggest(s *discordgo.Session, i *discordgo.InteractionCreate) {
 }
 
 func handleMarkMovieAsSeen(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	// Task 2.2
+	gID, ok := interactionGuildID(i)
+	if !ok {
+		respond(s, i, "Este comando solo está disponible dentro de un servidor.")
+		return
+	}
+
 	data := i.ApplicationCommandData()
 
-	// Autocomplete
+	// Autocomplete — Task 5.3: pasar i.GuildID
 	if i.Type == discordgo.InteractionApplicationCommandAutocomplete {
 		var query string
 		for _, opt := range data.Options {
@@ -228,14 +285,15 @@ func handleMarkMovieAsSeen(s *discordgo.Session, i *discordgo.InteractionCreate)
 				query = opt.StringValue()
 			}
 		}
-		respondAutocomplete(s, i, i.Member.User.ID, query)
+		respondAutocomplete(s, i, gID, query)
 		return
 	}
 
 	nombre := data.Options[0].StringValue()
 
+	// Task 3.3: filtrar SELECT y UPDATE por guild_id
 	var peliID int
-	err := db.QueryRow(`SELECT id FROM peliculas WHERE nombre = ? COLLATE NOCASE`, nombre).Scan(&peliID)
+	err := db.QueryRow(`SELECT id FROM peliculas WHERE nombre = ? COLLATE NOCASE AND guild_id = ?`, nombre, gID).Scan(&peliID)
 	if err == sql.ErrNoRows {
 		respond(s, i, fmt.Sprintf("No encontré **%s** en el catálogo.", nombre))
 		return
@@ -244,7 +302,7 @@ func handleMarkMovieAsSeen(s *discordgo.Session, i *discordgo.InteractionCreate)
 		respond(s, i, "Error: "+err.Error())
 		return
 	}
-	_, err = db.Exec(`UPDATE peliculas SET vista_en = CURRENT_TIMESTAMP WHERE id = ?`, peliID)
+	_, err = db.Exec(`UPDATE peliculas SET vista_en = CURRENT_TIMESTAMP WHERE id = ? AND guild_id = ?`, peliID, gID)
 	if err != nil {
 		respond(s, i, "Error al marcar como vista: "+err.Error())
 		return
@@ -253,12 +311,21 @@ func handleMarkMovieAsSeen(s *discordgo.Session, i *discordgo.InteractionCreate)
 }
 
 func handleGetMovieList(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	// Task 2.2
+	gID, ok := interactionGuildID(i)
+	if !ok {
+		respond(s, i, "Este comando solo está disponible dentro de un servidor.")
+		return
+	}
+
+	// Task 4.2: filtrar por guild_id
 	rows, err := db.Query(`
 		SELECT nombre,
 			   CASE WHEN vista_en IS NOT NULL THEN 1 ELSE 0 END AS vista
 		FROM peliculas
+		WHERE guild_id = ?
 		LIMIT 25;
-	`) // It'd be interesting add pagination to this feature
+	`, gID) // It'd be interesting add pagination to this feature
 
 	if err != nil {
 		respond(s, i, "Error: "+err.Error())
@@ -286,9 +353,16 @@ func handleGetMovieList(s *discordgo.Session, i *discordgo.InteractionCreate) {
 }
 
 func handleUnmarkMovie(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	// Task 2.2
+	gID, ok := interactionGuildID(i)
+	if !ok {
+		respond(s, i, "Este comando solo está disponible dentro de un servidor.")
+		return
+	}
+
 	data := i.ApplicationCommandData()
 
-	// Autocomplete
+	// Autocomplete — Task 5.3: pasar i.GuildID
 	if i.Type == discordgo.InteractionApplicationCommandAutocomplete {
 		var query string
 		for _, opt := range data.Options {
@@ -296,7 +370,7 @@ func handleUnmarkMovie(s *discordgo.Session, i *discordgo.InteractionCreate) {
 				query = opt.StringValue()
 			}
 		}
-		respondAutocompleteSeenMovies(s, i, query)
+		respondAutocompleteSeenMovies(s, i, gID, query)
 		return
 	}
 
@@ -313,10 +387,13 @@ func handleUnmarkMovie(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			id = opt.IntValue()
 		}
 	}
+
+	// Task 3.4: filtrar UPDATEs por guild_id
 	if name != "" {
 		res, err := db.Exec(
-			`UPDATE peliculas SET vista_en = NULL WHERE nombre = ?`,
+			`UPDATE peliculas SET vista_en = NULL WHERE nombre = ? AND guild_id = ?`,
 			name,
+			gID,
 		)
 
 		if err != nil {
@@ -333,8 +410,9 @@ func handleUnmarkMovie(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
 	} else if id != 0 {
 		res, err := db.Exec(
-			`UPDATE peliculas SET vista_en = NULL WHERE id = ?`,
+			`UPDATE peliculas SET vista_en = NULL WHERE id = ? AND guild_id = ?`,
 			id,
+			gID,
 		)
 
 		if err != nil {
@@ -358,12 +436,14 @@ func respond(s *discordgo.Session, i *discordgo.InteractionCreate, content strin
 	})
 }
 
-func respondAutocomplete(s *discordgo.Session, i *discordgo.InteractionCreate, userID, query string) {
+// Task 5.1: recibe guildID y filtra el SELECT por él
+func respondAutocomplete(s *discordgo.Session, i *discordgo.InteractionCreate, guildID, query string) {
 	rows, err := db.Query(`
 		SELECT nombre FROM peliculas
 		WHERE nombre LIKE ? COLLATE NOCASE
 			AND vista_en IS NULL
-	`, "%"+query+"%")
+			AND guild_id = ?
+	`, "%"+query+"%", guildID)
 	if err != nil {
 		return
 	}
@@ -384,13 +464,15 @@ func respondAutocomplete(s *discordgo.Session, i *discordgo.InteractionCreate, u
 	})
 }
 
+// Task 5.2: recibe guildID y filtra el SELECT por él
 // TODO: I don't like this, figure out how to don't repeat the logic from the above method
-func respondAutocompleteSeenMovies(s *discordgo.Session, i *discordgo.InteractionCreate, query string) {
+func respondAutocompleteSeenMovies(s *discordgo.Session, i *discordgo.InteractionCreate, guildID, query string) {
 	rows, err := db.Query(
 		`SELECT nombre FROM peliculas
 		WHERE nombre LIKE ? COLLATE NOCASE
 			AND vista_en IS NOT NULL
-		`, "%"+query+"%",
+			AND guild_id = ?
+		`, "%"+query+"%", guildID,
 	)
 
 	if err != nil {
