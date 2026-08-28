@@ -1,5 +1,12 @@
 schema: spec-driven
 
+context: |
+  Bot de Discord para gestionar un catálogo de películas por servidor.
+  Stack: TypeScript sobre Cloudflare Workers, persistencia en D1 (SQLite).
+  Las interacciones llegan por webhook HTTP firmado (Ed25519), no por gateway.
+  Los comandos slash se registran con scripts/register.ts desde local.
+  Comentarios y documentación de producto en español.
+
 # Project context (optional)
 # This is shown to AI when creating artifacts.
 # Add your tech stack, conventions, style guides, domain knowledge, etc.

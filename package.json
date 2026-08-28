@@ -1,0 +1,20 @@
+{
+  "name": "valstrax",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Bot de Discord para gestionar un catálogo de películas por servidor",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "schema:local": "wrangler d1 execute valstrax-db --local --file=schema.sql",
+    "schema:remote": "wrangler d1 execute valstrax-db --remote --file=schema.sql",
+    "register": "node --env-file=.env scripts/register.ts"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260825.1",
+    "typescript": "^5.7.3",
+    "wrangler": "^4.127.0"
+  }
+}

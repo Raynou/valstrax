@@ -1,0 +1,16 @@
+name = "valstrax"
+main = "src/index.ts"
+compatibility_date = "2026-08-27"
+
+# El único secreto que usa el Worker en runtime es DISCORD_PUBLIC_KEY
+# (verificación de firma en src/verify.ts). Se registra con:
+#   wrangler secret put DISCORD_PUBLIC_KEY
+# En local se lee de .dev.vars, no de .env.
+#
+# DISCORD_TOKEN y DISCORD_APPLICATION_ID sólo los usa scripts/register.ts
+# desde tu máquina (.env); el Worker nunca llama a la API de Discord.
+
+[[d1_databases]]
+binding = "DB"
+database_name = "valstrax-db"
+database_id = "91772b10-9c6a-4e09-b5be-5b32ea342aef"
