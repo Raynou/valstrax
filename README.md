@@ -58,19 +58,47 @@ involved:
 
 ```bash
 npm install
-npm run schema:local   # apply schema.sql to the local D1 database
+npm run migrate:local   # apply migrations/ to the local D1 database
 npm run dev
 ```
 
+Schema changes are versioned with Wrangler's D1 migrations. Add a new file to
+`migrations/` (`wrangler d1 migrations create valstrax-db <name>`) and re-run
+`npm run migrate:local`.
+
 ### Deployment
 
+Every push to `main` triggers `.github/workflows/deploy-cloudflare.yml`, which
+runs `typecheck` → `migrate:remote` → `deploy` → `register`. Nothing to do by
+hand for a normal release.
+
+**One-time setup.** The Worker's runtime secret stays in Cloudflare:
+
 ```bash
-npm run deploy
 npx wrangler secret put DISCORD_PUBLIC_KEY
-npm run schema:remote
-npm run register
 ```
 
-Then paste the Worker URL into **Interactions Endpoint URL** in the Discord
-Developer Portal. Discord sends a signed PING to that URL and only saves it if
-the signature verifies.
+The pipeline authenticates through three **GitHub Actions secrets** (Settings →
+Secrets and variables → Actions):
+
+| Secret | Used by | How to get it |
+| --- | --- | --- |
+| `CLOUDFLARE_API_TOKEN` | `migrate:remote`, `deploy` | Cloudflare dashboard → My Profile → API Tokens → Create Token, permissions **Workers Scripts: Edit** and **D1: Edit** |
+| `DISCORD_TOKEN` | `register` | Discord Developer Portal → your app → Bot → Token |
+| `DISCORD_APPLICATION_ID` | `register` | Discord Developer Portal → your app → General Information → Application ID |
+
+First deploy against the already-provisioned remote database: `migrate:remote`
+creates the `d1_migrations` table and applies `0001` as a no-op (it is a copy of
+the old `schema.sql`, all `IF NOT EXISTS`).
+
+**Emergency manual deploy** (GitHub Actions unavailable): run the same scripts
+locally with `CLOUDFLARE_API_TOKEN`, `DISCORD_TOKEN` and `DISCORD_APPLICATION_ID`
+in your environment (or `.env`):
+
+```bash
+npm run ci   # typecheck && migrate:remote && deploy && register
+```
+
+After the first deploy, paste the Worker URL into **Interactions Endpoint URL**
+in the Discord Developer Portal. Discord sends a signed PING to that URL and only
+saves it if the signature verifies.
