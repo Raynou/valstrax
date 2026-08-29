@@ -6,10 +6,11 @@
 //
 //   npm run register
 //
-// Lee DISCORD_TOKEN, DISCORD_APPLICATION_ID y, opcionalmente, GUILD_ID desde
-// .env. Con GUILD_ID los comandos se registran solo en ese servidor y aparecen
-// al instante — útil para probar. Sin él, se registran globalmente y Discord
-// puede tardar en propagarlos.
+// Lee DISCORD_TOKEN, DISCORD_APPLICATION_ID y, opcionalmente, GUILD_ID del
+// entorno. En local se cargan desde .env (`--env-file-if-exists`); en la
+// pipeline de CI se inyectan desde GitHub Actions Secrets. Con GUILD_ID los
+// comandos se registran solo en ese servidor y aparecen al instante — útil para
+// probar. Sin él, se registran globalmente y Discord puede tardar en propagarlos.
 
 export {}; // marca el fichero como módulo, para poder usar await de nivel superior
 

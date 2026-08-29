@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "migrate:local": "wrangler d1 migrations apply valstrax-db --local",
     "migrate:remote": "wrangler d1 migrations apply valstrax-db --remote",
-    "register": "node --env-file=.env scripts/register.ts"
+    "register": "node --env-file-if-exists=.env scripts/register.ts",
+    "ci": "npm run typecheck && npm run migrate:remote && npm run deploy && npm run register"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260825.1",
